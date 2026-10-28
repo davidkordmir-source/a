@@ -1,0 +1,63 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches:
+      - build-elevation-exe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11 x64
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: "x64"
+          cache: "pip"
+          cache-dependency-path: requirements-build.txt
+
+      - name: Install pinned GIS and packaging dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-build.txt
+
+      - name: Validate dependency imports
+        run: |
+          python -c "import numpy, scipy, rasterio, fiona, shapely, pyproj, PyInstaller; print('Imports OK')"
+
+      - name: Build bundled Windows application
+        run: |
+          python -m PyInstaller --noconfirm --clean ElevationAreaExtractor.spec
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            throw "Inno Setup compiler not found."
+          }
+
+      - name: Build installer EXE
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "Elevation_Area_Extractor_Setup.iss"
+          if (-not (Test-Path "dist\installer\Elevation_Area_Extractor_Setup.exe")) {
+            throw "Installer EXE was not generated."
+          }
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Elevation-Area-Extractor-Windows-Installer
+          path: dist/installer/Elevation_Area_Extractor_Setup.exe
+          if-no-files-found: error
+          retention-days: 30
